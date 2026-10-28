@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Hieroglyph Match</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;background:#04070d;color:#e8fbff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
+  body{display:flex;flex-direction:column;align-items:center}
+  header{width:100%;max-width:520px;padding:10px 12px 4px;text-align:center}
+  h1{margin:0;font-size:20px;letter-spacing:2px;color:#00f0ff;text-shadow:0 0 12px rgba(0,240,255,.55)}
+  header p{margin:4px 0 0;font-size:13px;color:#8fb8c4}
+  #wrap{width:min(94vw,460px);flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  #stats{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;font-size:14px;padding:6px 0}
+  #stats span{color:#ffe259;font-weight:700}
+  #modeBar{display:flex;gap:8px;padding:2px 0 8px}
+  #modeBar button{flex:1}
+  button{min-height:48px;border:1px solid #00f0ff;background:#08131f;color:#e8fbff;font-size:16px;font-weight:700;padding:10px 8px;border-radius:10px;cursor:pointer}
+  button:active{background:#0f2a3d}
+  button[aria-pressed="true"]{background:#0f5e7a;box-shadow:0 0 14px rgba(0,240,255,.35)}
+  #board{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;flex:1 1 auto;align-content:start}
+  .tile{min-height:76px;border:1px solid #0f5e7a;border-radius:12px;background:#08131f;color:#e8fbff;font-size:34px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;transition:transform .12s ease, background .15s ease}
+  .tile:active{transform:scale(.97)}
+  .tile .glyph{font-size:36px;line-height:1}
+  .tile .name{font-size:11px;color:#8fb8c4}
+  .tile .back{font-size:26px;color:#00f0ff}
+  .tile.flipped{background:#0f2a3d;border-color:#00f0ff}
+  .tile.matched{background:#123a2e;border-color:#2ed8a0;box-shadow:0 0 12px rgba(46,216,160,.35)}
+  .tile:disabled{cursor:default}
+  #msg{text-align:center;min-height:22px;font-size:14px;color:#ff2e88;padding:6px 0 2px}
+  #bar{display:flex;gap:8px;padding:4px 0}
+  #bar button{flex:1}
+  #bests{text-align:center;font-size:12px;color:#8fb8c4;line-height:1.5;padding:2px 8px 4px}
+  footer{text-align:center;font-size:11px;color:#6f8d99;padding:4px 8px calc(10px + env(safe-area-inset-bottom))}
+  @media (prefers-reduced-motion: reduce){.tile{transition:none}}
+  @media (max-width:380px){
+    h1{font-size:17px}
+    .tile{min-height:68px}
+    .tile .glyph{font-size:32px}
+    button{font-size:15px;min-height:52px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>HIEROGLYPH MATCH</h1>
+  <p>Was, Djed, and Ankh lead the set, from George's own tattoo symbols.</p>
+</header>
+<div id="wrap">
+  <div id="stats">
+    Pairs: <span id="pairs">0 / 8</span>
+    &nbsp; Flips: <span id="flips">0</span>
+    &nbsp; <span id="timeLabel">Time</span>: <span id="time">0:00</span>
+  </div>
+  <div id="modeBar" role="group" aria-label="Game mode">
+    <button id="relaxedBtn" type="button" aria-pressed="true">Relaxed, no timer</button>
+    <button id="timedBtn" type="button" aria-pressed="false">Timed challenge</button>
+  </div>
+  <div id="board" aria-label="Memory match board"></div>
+  <div id="msg"></div>
+  <div id="bar">
+    <button id="restartBtn" type="button">Restart</button>
+    <button id="soundBtn" type="button">Sound: On</button>
+    <button id="copyBtn" type="button">Copy result</button>
+  </div>
+  <div id="bests"></div>
+  <footer>A George &amp; Strider collab, built with Muse. No signup, no upload.</footer>
+</div>
+<script>
+(function(){
+  "use strict";
+  /* Symbols are Unicode hieroglyph characters plus their names, drawn
+     with text and CSS only. No images, no copied artwork. */
+  var SYMBOLS = [
+    { glyph: "𓋹", name: "Ankh", note: "life" },
+    { glyph: "𓌀", name: "Was", note: "power" },
+    { glyph: "𓊵", name: "Djed", note: "stability" },
+    { glyph: "𓂀", name: "Eye of Horus", note: "protection" },
+    { glyph: "𓆣", name: "Scarab", note: "rebirth" },
+    { glyph: "𓅓", name: "Owl", note: "wisdom" },
+    { glyph: "𓇳", name: "Sun disc", note: "Ra" },
+    { glyph: "𓈖", name: "Water", note: "life-giving" }
+  ];
+  var TIMED_SECONDS = 90;
+  var boardEl = document.getElementById("board");
+  var pairsEl = document.getElementById("pairs");
+  var flipsEl = document.getElementById("flips");
+  var timeEl = document.getElementById("time");
+  var timeLabelEl = document.getElementById("timeLabel");
+  var msgEl = document.getElementById("msg");
+  var bestsEl = document.getElementById("bests");
+  var relaxedBtn = document.getElementById("relaxedBtn");
+  var timedBtn = document.getElementById("timedBtn");
+  var restartBtn = document.getElementById("restartBtn");
+  var soundBtn = document.getElementById("soundBtn");
+  var copyBtn = document.getElementById("copyBtn");
+
+  var reducedMotion = false;
+  try { reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+
+  function loadStored(key, fallback){
+    try { var v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; }
+  }
+  function saveStored(key, value){ try { localStorage.setItem(key, value); } catch (e) {} }
+
+  var mode = "relaxed";
+  var soundOn = loadStored("hm-sound", "on") !== "off";
+  soundBtn.textContent = soundOn ? "Sound: On" : "Sound: Off";
+  var tiles = [], firstTile = null, lockBoard = false, matchedPairs = 0, flips = 0;
+  var won = false, timerId = null, startedAt = 0, secondsLeft = TIMED_SECONDS, elapsedSeconds = 0;
+  var audioCtx = null;
+
+  function blip(freq, dur){
+    if (!soundOn) return;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      var osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      osc.type = "sine"; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(); osc.stop(audioCtx.currentTime + dur);
+    } catch (e) {}
+  }
+  function fmt(total){
+    var m = Math.floor(total / 60), s = total % 60;
+    return m + ":" + (s < 10 ? "0" + s : s);
+  }
+  function bestKey(metric){ return "hm-best-" + mode + "-" + metric; }
+  function bestValue(metric){
+    var v = parseInt(loadStored(bestKey(metric), ""), 10);
+    return isNaN(v) ? null : v;
+  }
+  function renderBests(){
+    var bf = bestValue("flips"), bt = bestValue("time");
+    var label = mode === "timed" ? "Timed best" : "Relaxed best";
+    bestsEl.textContent = label + ": " +
+      (bf === null ? "no win yet" : bf + " flips") + " · " +
+      (bt === null ? "no win yet" : fmt(bt));
+  }
+  function stopTimer(){ if (timerId) { clearInterval(timerId); timerId = null; } }
+  function updateTimeDisplay(){
+    if (mode === "timed") { timeLabelEl.textContent = "Left"; timeEl.textContent = fmt(Math.max(secondsLeft, 0)); }
+    else { timeLabelEl.textContent = "Time"; timeEl.textContent = fmt(elapsedSeconds); }
+  }
+  function startClock(){
+    stopTimer(); startedAt = Date.now(); secondsLeft = TIMED_SECONDS; elapsedSeconds = 0;
+    updateTimeDisplay();
+    timerId = setInterval(function(){
+      if (mode === "timed") {
+        secondsLeft = TIMED_SECONDS - Math.floor((Date.now() - startedAt) / 1000);
+        if (secondsLeft <= 0) {
+          secondsLeft = 0; updateTimeDisplay(); stopTimer(); lockBoard = true;
+          msgEl.textContent = "Time's up. Press Restart to try again.";
+          tiles.forEach(function(t){ t.el.disabled = true; });
+          return;
+        }
+      } else {
+        elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+      }
+      updateTimeDisplay();
+    }, 500);
+  }
+  function shuffledDeck(){
+    var deck = [];
+    SYMBOLS.forEach(function(s, i){ deck.push(i); deck.push(i); });
+    for (var i = deck.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = deck[i]; deck[i] = deck[j]; deck[j] = tmp;
+    }
+    return deck;
+  }
+  function renderBoard(){
+    boardEl.innerHTML = "";
+    tiles = [];
+    shuffledDeck().forEach(function(symIndex){
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.className = "tile";
+      btn.innerHTML = '<span class="back">?</span>';
+      btn.setAttribute("aria-label", "Face-down tile");
+      var tile = { sym: symIndex, el: btn, flipped: false, matched: false };
+      btn.addEventListener("click", function(){ flipTile(tile); });
+      boardEl.appendChild(btn);
+      tiles.push(tile);
+    });
+  }
+  function showTile(tile){
+    var s = SYMBOLS[tile.sym];
+    tile.el.innerHTML = '<span class="glyph">' + s.glyph + '</span><span class="name">' + s.name + '</span>';
+    tile.el.classList.add("flipped");
+    tile.el.setAttribute("aria-label", s.name + ", " + s.note);
+  }
+  function hideTile(tile){
+    tile.el.innerHTML = '<span class="back">?</span>';
+    tile.el.classList.remove("flipped");
+    tile.el.setAttribute("aria-label", "Face-down tile");
+  }
+  function flipTile(tile){
+    if (lockBoard || won || tile.flipped || tile.matched) return;
+    if (flips === 0 && matchedPairs === 0 && !timerId) startClock();
+    tile.flipped = true; flips++; flipsEl.textContent = flips;
+    showTile(tile); blip(520, 0.08);
+    if (!firstTile) { firstTile = tile; return; }
+    var first = firstTile; firstTile = null;
+    if (first.sym === tile.sym) {
+      first.matched = true; tile.matched = true;
+      first.el.classList.add("matched"); tile.el.classList.add("matched");
+      first.el.disabled = true; tile.el.disabled = true;
+      matchedPairs++; pairsEl.textContent = matchedPairs + " / 8";
+      blip(780, 0.12);
+      if (matchedPairs === SYMBOLS.length) winGame();
+    } else {
+      lockBoard = true;
+      var delay = reducedMotion ? 400 : 800;
+      setTimeout(function(){
+        hideTile(first); hideTile(tile);
+        first.flipped = false; tile.flipped = false;
+        lockBoard = false;
+      }, delay);
+    }
+  }
+  function winGame(){
+    won = true; stopTimer();
+    var used = mode === "timed"
+      ? TIMED_SECONDS - Math.max(secondsLeft, 0)
+      : Math.floor((Date.now() - startedAt) / 1000);
+    elapsedSeconds = used; updateTimeDisplay();
+    var bf = bestValue("flips"), bt = bestValue("time");
+    var newBest = false;
+    if (bf === null || flips < bf) { saveStored(bestKey("flips"), String(flips)); newBest = true; }
+    if (bt === null || used < bt) { saveStored(bestKey("time"), String(used)); newBest = true; }
+    renderBests();
+    msgEl.textContent = "Matched all 8 pairs in " + flips + " flips, " + fmt(used) +
+      (mode === "timed" ? " of the timed challenge." : ".") +
+      (newBest ? " New best!" : "");
+    blip(880, 0.2);
+  }
+  function setMode(next){
+    mode = next;
+    relaxedBtn.setAttribute("aria-pressed", mode === "relaxed" ? "true" : "false");
+    timedBtn.setAttribute("aria-pressed", mode === "timed" ? "true" : "false");
+    newGame();
+  }
+  function newGame(){
+    stopTimer(); timerId = null;
+    firstTile = null; lockBoard = false; matchedPairs = 0; flips = 0; won = false;
+    secondsLeft = TIMED_SECONDS; elapsedSeconds = 0;
+    pairsEl.textContent = "0 / 8"; flipsEl.textContent = "0";
+    msgEl.textContent = mode === "timed"
+      ? "Timed challenge: match all 8 pairs in 90 seconds."
+      : "Relaxed mode: no timer. Take your time.";
+    updateTimeDisplay(); renderBoard(); renderBests();
+  }
+  relaxedBtn.addEventListener("click", function(){ setMode("relaxed"); });
+  timedBtn.addEventListener("click", function(){ setMode("timed"); });
+  restartBtn.addEventListener("click", newGame);
+  soundBtn.addEventListener("click", function(){
+    soundOn = !soundOn;
+    soundBtn.textContent = soundOn ? "Sound: On" : "Sound: Off";
+    saveStored("hm-sound", soundOn ? "on" : "off");
+  });
+  copyBtn.addEventListener("click", function(){
+    var text = won
+      ? "Hieroglyph Match (" + mode + "): all 8 pairs in " + flips + " flips, " + fmt(elapsedSeconds) + "."
+      : "Hieroglyph Match (" + mode + "): " + matchedPairs + " of 8 pairs so far.";
+    var done = function(){ msgEl.textContent = "Result copied. Paste it wherever you like, nothing was posted."; };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function(){ msgEl.textContent = text; });
+      } else { msgEl.textContent = text; }
+    } catch (e) { msgEl.textContent = text; }
+  });
+  document.addEventListener("touchmove", function(e){
+    if (e.target && e.target.closest && e.target.closest("#board")) e.preventDefault();
+  }, { passive: false });
+
+  newGame();
+})();
+</script>
+</body>
+</html>
